@@ -28,15 +28,22 @@ var dotSlash = string([]byte{'.', filepath.Separator})
 
 var (
 	// common build flages (shared with `hover run`)
-	buildTarget          string
-	buildGoFlutterBranch string
-	buildCachePath       string
-	buildOpenGlVersion   string
-	buildEngineVersion   string
-	// TODO(GeertJohan): Separate the init code for the common build flags (run
-	// and build) into a function that's used for both buildCmd and runCmd. Also
-	// rename those to `compileFooBar`.
+	buildOrRunFlutterTarget   string
+	buildOrRunGoFlutterBranch string
+	buildOrRunCachePath       string
+	buildOrRunOpenGlVersion   string
+	buildOrRunEngineVersion   string
+)
 
+func initCompileFlags(cmd *cobra.Command) {
+	cmd.PersistentFlags().StringVarP(&buildOrRunFlutterTarget, "target", "t", config.BuildTargetDefault, "The main entry-point file of the application.")
+	cmd.PersistentFlags().StringVarP(&buildOrRunGoFlutterBranch, "branch", "b", config.BuildBranchDefault, "The 'go-flutter' version to use. (@master or @v0.20.0 for example)")
+	cmd.PersistentFlags().StringVar(&buildOrRunCachePath, "cache-path", enginecache.DefaultCachePath(), "The path that hover uses to cache dependencies such as the Flutter engine .so/.dll")
+	cmd.PersistentFlags().StringVar(&buildOrRunOpenGlVersion, "opengl", config.BuildOpenGlVersionDefault, "The OpenGL version specified here is only relevant for external texture plugin (i.e. video_plugin).\nIf 'none' is provided, texture won't be supported. Note: the Flutter Engine still needs a OpenGL compatible context.")
+	cmd.PersistentFlags().StringVar(&buildOrRunEngineVersion, "engine-version", config.BuildEngineDefault, "The flutter engine version to use.")
+}
+
+var (
 	// `hover build`-only build flags
 	buildDocker                 bool
 	buildDebug                  bool
@@ -51,11 +58,8 @@ const clangBinName = "o32-clang"
 var engineCachePath string
 
 func init() {
-	buildCmd.PersistentFlags().StringVarP(&buildTarget, "target", "t", config.BuildTargetDefault, "The main entry-point file of the application.")
-	buildCmd.PersistentFlags().StringVarP(&buildGoFlutterBranch, "branch", "b", config.BuildBranchDefault, "The 'go-flutter' version to use. (@master or @v0.20.0 for example)")
-	buildCmd.PersistentFlags().StringVar(&buildEngineVersion, "engine-version", config.BuildEngineDefault, "The flutter engine version to use.")
-	buildCmd.PersistentFlags().StringVar(&buildCachePath, "cache-path", enginecache.DefaultCachePath(), "The path that hover uses to cache dependencies such as the Flutter engine .so/.dll")
-	buildCmd.PersistentFlags().StringVar(&buildOpenGlVersion, "opengl", config.BuildOpenGlVersionDefault, "The OpenGL version specified here is only relevant for external texture plugin (i.e. video_plugin).\nIf 'none' is provided, texture won't be supported. Note: the Flutter Engine still needs a OpenGL compatible context.")
+	initCompileFlags(buildCmd)
+
 	buildCmd.PersistentFlags().StringVar(&buildVersionNumber, "version-number", "", "Override the version number used in build and packaging. You may use it with $(git describe --tags)")
 	buildCmd.PersistentFlags().BoolVar(&buildDebug, "debug", false, "Build a debug version of the app.")
 	buildCmd.PersistentFlags().BoolVar(&buildDocker, "docker", false, "Execute the go build and packaging in a docker container. The Flutter build is always run locally.")
@@ -211,18 +215,18 @@ func subcommandBuild(targetOS string, packagingTask packaging.Task) {
 // fallback values based on config or defaults for values that have not
 // explicitly been set through flags.
 func initBuildParameters(targetOS string) {
-	if buildGoFlutterBranch == config.BuildBranchDefault && config.GetConfig().Branch != "" {
-		buildGoFlutterBranch = config.GetConfig().Branch
+	if buildOrRunGoFlutterBranch == config.BuildBranchDefault && config.GetConfig().Branch != "" {
+		buildOrRunGoFlutterBranch = config.GetConfig().Branch
 	}
 
-	if buildCachePath == "" {
+	if buildOrRunCachePath == "" {
 		log.Errorf("Missing cache path, cannot continue. Please see previous warning.")
 		os.Exit(1)
 	}
 
-	if buildEngineVersion == config.BuildEngineDefault && config.GetConfig().Engine != "" {
+	if buildOrRunEngineVersion == config.BuildEngineDefault && config.GetConfig().Engine != "" {
 		log.Warnf("changing the engine version can lead to undesirable behavior")
-		buildEngineVersion = config.GetConfig().Engine
+		buildOrRunEngineVersion = config.GetConfig().Engine
 	}
 
 	// TODO: This override doesn't work properly when the config specifies a
@@ -231,8 +235,8 @@ func initBuildParameters(targetOS string) {
 	//
 	// The comment on (*FlagSet).Lookup(..).Changed isn't very clear, but we
 	// could test how that behaves and switch to it.
-	if buildOpenGlVersion == config.BuildOpenGlVersionDefault && config.GetConfig().OpenGL != "" {
-		buildOpenGlVersion = config.GetConfig().OpenGL
+	if buildOrRunOpenGlVersion == config.BuildOpenGlVersionDefault && config.GetConfig().OpenGL != "" {
+		buildOrRunOpenGlVersion = config.GetConfig().OpenGL
 	}
 
 	if buildVersionNumber == "" {
@@ -241,22 +245,22 @@ func initBuildParameters(targetOS string) {
 
 	// TODO(GeertJohan): This is complicated to read and can be simplified.
 	if buildSkipEngineDownload {
-		engineCachePath = enginecache.EngineCachePath(targetOS, buildCachePath)
+		engineCachePath = enginecache.EngineCachePath(targetOS, buildOrRunCachePath)
 	} else {
-		engineCachePath = enginecache.ValidateOrUpdateEngineAtPath(targetOS, buildCachePath, buildEngineVersion)
+		engineCachePath = enginecache.ValidateOrUpdateEngineAtPath(targetOS, buildOrRunCachePath, buildOrRunEngineVersion)
 	}
 }
 
 func commonFlags() []string {
 	f := []string{}
-	if buildTarget != config.BuildTargetDefault {
-		f = append(f, "--target", buildTarget)
+	if buildOrRunFlutterTarget != config.BuildTargetDefault {
+		f = append(f, "--target", buildOrRunFlutterTarget)
 	}
-	if buildGoFlutterBranch != config.BuildBranchDefault {
-		f = append(f, "--branch", buildGoFlutterBranch)
+	if buildOrRunGoFlutterBranch != config.BuildBranchDefault {
+		f = append(f, "--branch", buildOrRunGoFlutterBranch)
 	}
-	if buildOpenGlVersion != config.BuildOpenGlVersionDefault {
-		f = append(f, "--opengl", buildOpenGlVersion)
+	if buildOrRunOpenGlVersion != config.BuildOpenGlVersionDefault {
+		f = append(f, "--opengl", buildOrRunOpenGlVersion)
 	}
 	return f
 }
@@ -300,10 +304,10 @@ func cleanBuildOutputsDir(targetOS string) {
 }
 
 func buildFlutterBundle(targetOS string) {
-	if buildTarget == config.BuildTargetDefault && config.GetConfig().Target != "" {
-		buildTarget = config.GetConfig().Target
+	if buildOrRunFlutterTarget == config.BuildTargetDefault && config.GetConfig().Target != "" {
+		buildOrRunFlutterTarget = config.GetConfig().Target
 	}
-	assertTargetFileExists(buildTarget)
+	assertTargetFileExists(buildOrRunFlutterTarget)
 
 	runPluginGet, err := shouldRunPluginGet()
 	if err != nil {
@@ -323,7 +327,7 @@ func buildFlutterBundle(targetOS string) {
 	var flutterBuildBundleArgs = []string{
 		"build", "bundle",
 		"--asset-dir", filepath.Join(build.OutputDirectoryPath(targetOS), "flutter_assets"),
-		"--target", buildTarget,
+		"--target", buildOrRunFlutterTarget,
 	}
 	if buildDebug {
 		flutterBuildBundleArgs = append(flutterBuildBundleArgs, "--track-widget-creation")
@@ -378,7 +382,7 @@ func buildGoBinary(targetOS string, vmArguments []string) {
 		os.Exit(1)
 	}
 
-	if buildGoFlutterBranch == "" {
+	if buildOrRunGoFlutterBranch == "" {
 		currentTag, err := versioncheck.CurrentGoFlutterTag(filepath.Join(wd, build.BuildPath))
 		if err != nil {
 			log.Errorf("%v", err)
@@ -407,7 +411,7 @@ func buildGoBinary(targetOS string, vmArguments []string) {
 		}
 
 	} else {
-		log.Printf("Downloading 'go-flutter' %s", buildGoFlutterBranch)
+		log.Printf("Downloading 'go-flutter' %s", buildOrRunGoFlutterBranch)
 
 		// when the buildBranch is set, fetch the go-flutter branch version.
 		err = upgradeGoFlutter(targetOS, engineCachePath)
@@ -418,7 +422,7 @@ func buildGoBinary(targetOS string, vmArguments []string) {
 
 	versioncheck.CheckForHoverUpdate(hoverVersion())
 
-	if buildOpenGlVersion == "none" {
+	if buildOrRunOpenGlVersion == "none" {
 		log.Warnf("The '--opengl=none' flag makes go-flutter incompatible with texture plugins!")
 	}
 
@@ -527,7 +531,7 @@ func buildCommand(targetOS string, vmArguments []string, outputBinaryPath string
 	outputCommand := []string{
 		"go",
 		"build",
-		"-tags=opengl" + buildOpenGlVersion,
+		"-tags=opengl" + buildOrRunOpenGlVersion,
 		"-o", outputBinaryPath,
 		"-v",
 	}
