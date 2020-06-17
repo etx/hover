@@ -56,6 +56,7 @@ var (
 )
 
 const mingwGccBinName = "x86_64-w64-mingw32-gcc"
+const mingwGppBinName = "x86_64-w64-mingw32-g++"
 const clangBinName = "o32-clang"
 
 var engineCachePath string
@@ -497,6 +498,14 @@ func buildEnv(targetOS string, engineCachePath string) []string {
 		if targetOS == "darwin" {
 			env = append(env,
 				"CC="+clangBinName,
+			)
+		}
+	}
+	if runtime.GOOS == "darwin" {
+		if targetOS == "windows" {
+			env = append(env,
+				"CC="+mingwGccBinName,
+				"CXX="+mingwGppBinName,
 			)
 		}
 	}
